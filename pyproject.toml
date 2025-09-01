@@ -1,0 +1,25 @@
+[project]
+name = "youtube-mcp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Teake1404", email = "arsenal1404@hotmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "google-api-python-client>=2.179.0",
+    "httpx>=0.28.1",
+    "mcp>=1.13.1",
+    "python-dotenv>=1.1.1",
+    "youtube-transcript-api>=1.2.2",
+    "anthropic>=0.28.0",
+    "openai>=1.0.0",
+]
+
+[project.scripts]
+youtube-mcp = "youtube_mcp:main"
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9.0"]
+build-backend = "uv_build"
