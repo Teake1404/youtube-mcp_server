@@ -524,6 +524,216 @@ def _extract_key_points_from_text(text: str, max_points: int) -> List[str]:
     return key_points[:max_points]
 
 @app.tool()
+def get_velocity_trending_videos(
+    query: str,
+    hours: int = 24,
+    min_velocity: int = 1000,
+    min_total_views: int = 10000,
+    min_subscribers: int = 10000,
+    min_engagement_rate: float = 0.03,
+    max_results: int = 10
+) -> List[Dict[str, Any]]:
+    """
+    Find videos gaining views rapidly (trending by velocity) with quality filtering.
+    
+    Args:
+        query: Search query (e.g., "ai coding tutorials")
+        hours: Look for videos published in last N hours (default: 24)
+        min_velocity: Minimum views per hour to be considered trending (default: 1000)
+        min_total_views: Minimum total views to filter out low-reach content (default: 10000)
+        min_subscribers: Minimum channel subscribers to filter out new channels (default: 10000)
+        min_engagement_rate: Minimum likes/views ratio for quality content (default: 0.03 = 3%)
+        max_results: Maximum number of results to return (default: 10)
+    
+    Returns:
+        List of trending video information with velocity metrics
+    """
+    try:
+        youtube = get_youtube_service()
+        
+        # 1. Search for recent videos
+        published_after = datetime.now(timezone.utc) - timedelta(hours=hours)
+        resp = youtube.search().list(
+            part='snippet',
+            q=query,
+            type='video',
+            order='date',
+            publishedAfter=published_after.isoformat(),
+            maxResults=min(100, max_results * 10)  # Get more to filter
+        ).execute()
+        
+        if not resp.get('items'):
+            return [{"error": f"No videos found for query '{query}' in last {hours} hours"}]
+        
+        # 2. Get detailed stats for each video
+        video_ids = [item['id']['videoId'] for item in resp.get('items', [])]
+        video_stats = _get_video_stats(video_ids)
+        
+        # 3. Get channel information for subscriber filtering
+        channel_ids = list(set([item['snippet']['channelId'] for item in resp.get('items', [])]))
+        channel_stats = _get_channel_stats(channel_ids)
+        
+        # 4. Calculate velocity and apply filters
+        trending_videos = []
+        
+        for item in resp.get('items', []):
+            video_id = item['id']['videoId']
+            channel_id = item['snippet']['channelId']
+            
+            # Skip if we don't have stats for this video
+            if video_id not in video_stats:
+                continue
+                
+            video_meta = video_stats[video_id]
+            channel_meta = channel_stats.get(channel_id, {})
+            
+            # Calculate time since published
+            published_at = datetime.fromisoformat(
+                video_meta['published_at'].replace('Z', '+00:00')
+            )
+            hours_since_published = (datetime.now(timezone.utc) - published_at).total_seconds() / 3600
+            
+            # Skip if published too recently (less than 1 hour)
+            if hours_since_published < 1:
+                continue
+            
+            # Calculate velocity
+            view_count = video_meta['view_count']
+            velocity = view_count / hours_since_published
+            
+            # Calculate engagement rate
+            like_count = video_meta.get('like_count', 0) or 0
+            engagement_rate = like_count / view_count if view_count > 0 else 0
+            
+            # Apply filters
+            if (velocity >= min_velocity and 
+                view_count >= min_total_views and
+                channel_meta.get('subscriber_count', 0) >= min_subscribers and
+                engagement_rate >= min_engagement_rate):
+                
+                trending_videos.append({
+                    'video_id': video_id,
+                    'title': video_meta['title'],
+                    'channel_title': video_meta['channel_title'],
+                    'channel_id': channel_id,
+                    'view_count': view_count,
+                    'like_count': like_count,
+                    'published_at': video_meta['published_at'],
+                    'hours_since_published': round(hours_since_published, 1),
+                    'velocity': round(velocity, 2),
+                    'engagement_rate': round(engagement_rate * 100, 2),  # Convert to percentage
+                    'subscriber_count': channel_meta.get('subscriber_count', 0),
+                    'url': f"https://youtu.be/{video_id}",
+                    'trending_score': round(velocity * engagement_rate, 2)  # Combined metric
+                })
+        
+        # 5. Sort by trending score (velocity × engagement rate)
+        trending_videos.sort(key=lambda x: x['trending_score'], reverse=True)
+        
+        return trending_videos[:max_results]
+        
+    except Exception as e:
+        return [{"error": f"Velocity trending search failed: {str(e)}"}]
+
+def _get_channel_stats(channel_ids: List[str]) -> Dict[str, Dict]:
+    """Get subscriber count and other stats for channels"""
+    youtube = get_youtube_service()
+    channel_stats = {}
+    
+    # Process in batches of 50 (API limit)
+    for i in range(0, len(channel_ids), 50):
+        batch = channel_ids[i:i+50]
+        resp = youtube.channels().list(
+            part='statistics',
+            id=','.join(batch)
+        ).execute()
+        
+        for channel in resp.get('items', []):
+            stats = channel.get('statistics', {})
+            channel_stats[channel['id']] = {
+                'subscriber_count': int(stats.get('subscriberCount', 0)),
+                'video_count': int(stats.get('videoCount', 0)),
+                'view_count': int(stats.get('viewCount', 0))
+            }
+    
+    return channel_stats
+
+@app.tool()
+def get_trending_summary(
+    query: str,
+    hours: int = 24,
+    max_results: int = 5
+) -> Dict[str, Any]:
+    """
+    Get a summary of trending videos with key insights.
+    
+    Args:
+        query: Search query
+        hours: Look for videos published in last N hours
+        max_results: Number of videos to analyze
+    
+    Returns:
+        Summary with trending videos and insights
+    """
+    try:
+        trending_videos = get_velocity_trending_videos(
+            query=query,
+            hours=hours,
+            min_velocity=100,  # More reasonable default
+            min_total_views=1000,  # More reasonable default
+            min_subscribers=1000,  # More reasonable default
+            max_results=max_results
+        )
+        
+        if not trending_videos or 'error' in trending_videos[0]:
+            return {
+                'success': False,
+                'error': trending_videos[0]['error'] if trending_videos else 'No trending videos found',
+                'query': query,
+                'hours': hours
+            }
+        
+        # Calculate insights
+        total_views = sum(video['view_count'] for video in trending_videos)
+        avg_velocity = sum(video['velocity'] for video in trending_videos) / len(trending_videos)
+        avg_engagement = sum(video['engagement_rate'] for video in trending_videos) / len(trending_videos)
+        
+        # Find top performing channel
+        channel_performance = {}
+        for video in trending_videos:
+            channel = video['channel_title']
+            if channel not in channel_performance:
+                channel_performance[channel] = {'videos': 0, 'total_velocity': 0}
+            channel_performance[channel]['videos'] += 1
+            channel_performance[channel]['total_velocity'] += video['velocity']
+        
+        top_channel = max(channel_performance.items(), key=lambda x: x[1]['total_velocity'])
+        
+        return {
+            'success': True,
+            'query': query,
+            'hours': hours,
+            'videos_found': len(trending_videos),
+            'insights': {
+                'total_views': total_views,
+                'average_velocity': round(avg_velocity, 2),
+                'average_engagement_rate': round(avg_engagement, 2),
+                'top_performing_channel': {
+                    'name': top_channel[0],
+                    'videos_in_trending': top_channel[1]['videos'],
+                    'average_velocity': round(top_channel[1]['total_velocity'] / top_channel[1]['videos'], 2)
+                }
+            },
+            'trending_videos': trending_videos
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f"Trending summary failed: {str(e)}"
+        }
+
+@app.tool()
 def ping() -> str:
     """Simple ping to test if the MCP server is working"""
     return "pong from YouTube MCP Server!"

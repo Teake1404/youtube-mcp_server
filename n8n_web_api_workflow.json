@@ -1,0 +1,298 @@
+{
+  "name": "youtube_mcp_slack",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "18881ef0-2068-46c3-874d-a94a083d41ce",
+      "name": "Daily at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1968,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Configurable keywords - easily modify this list\nconst config = {\n  queries: [\n    \"MCP Automation\",\n    \"AI Automation\",\n    \"n8n\"\n \n  ],\n  hours: 24,\n  max_results_per_query: 3,\n  max_results: 5\n};\n\n// Create a single item for the multi-query endpoint\nreturn [{\n  json: {\n    queries: config.queries,\n    hours: config.hours,\n    max_results_per_query: config.maxResultsPerQuery\n  }\n}];"
+      },
+      "id": "0312f494-008d-4a35-b9be-c36806cb5eba",
+      "name": "Setup Keywords & Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://titanium-gadget-451710-i7.uc.r.appspot.com/multi_query_trending_report",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "queries",
+              "value": "={{ $json.queries }}"
+            },
+            {
+              "name": "hours",
+              "value": "={{ $json.hours }}"
+            },
+            {
+              "name": "max_results_per_query",
+              "value": "={{ $json.max_results_per_query }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "c346379d-6c27-4aef-861d-4e551c1d0eac",
+      "name": "Call YouTube MCP Web API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1520,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process the API response and extract the data\nconst data = $json;\n\nconsole.log(\"=== DEBUG: Process API Response ===\");\nconsole.log(\"Data received:\", JSON.stringify(data, null, 2));\n\n// Check if we have valid data\nif (!data || !data.result) {\n  console.log(\"ERROR: No valid data structure\");\n  return [{\n    json: {\n      error: \"No valid data received\",\n      debug: \"Data structure: \" + JSON.stringify(data, null, 2)\n    }\n  }];\n}\n\n// Extract the main data\nconst result = data.result;\nconst combinedInsights = result.combined_insights || {};\n\nconsole.log(\"Combined insights:\", combinedInsights);\n\n// Return the processed data\nconst processedData = {\n  total_videos_found: combinedInsights.total_videos_found || 0,\n  successful_queries: combinedInsights.successful_queries || 0,\n  queries_processed: combinedInsights.queries_processed || 0,\n  total_views: combinedInsights.total_views || 0,\n  unique_channels: combinedInsights.unique_channels || [],\n  unique_channels_count: combinedInsights.unique_channels_count || 0,\n  generated_at: result.generated_at,\n  trending_videos: result.trending_videos || [],\n  query_results: result.queries || [],\n  combined_insights: combinedInsights,\n  ai_summary: result.ai_summary || null,\n  debug: \"Processed successfully\"\n};\n\nconsole.log(\"Processed data:\", processedData);\n\nreturn [{\n  json: processedData\n}];"
+      },
+      "id": "8caadafb-a2ab-4133-8b1f-0783dad20391",
+      "name": "Process API Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1296,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format YouTube MCP data for Slack with rich formatting\nconst data = $json;\n\nconsole.log(\"=== DEBUG: Format for Slack Input ===\");\nconsole.log(\"Data received:\", JSON.stringify(data, null, 2));\n\n// The data is already processed by the previous node\nconst aiSummary = data.ai_summary || {};\nconst combinedInsights = data.combined_insights || {};\nconst trendingVideos = data.trending_videos || combinedInsights.trending_videos || [];\n\nconsole.log(\"AI Summary:\", aiSummary);\nconsole.log(\"Trending Videos Count:\", trendingVideos.length);\n\n// Create Slack blocks for rich formatting\nconst blocks = [\n  {\n    type: \"header\",\n    text: {\n      type: \"plain_text\",\n      text: \"📊 Daily YouTube Trending Report\"\n    }\n  },\n  {\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: `📈 *Report Overview:*\\n• ${data.total_videos_found || 0} trending videos analyzed\\n• ${data.successful_queries || 0}/${data.queries_processed || 0} queries successful\\n• Generated: ${new Date(data.generated_at || new Date()).toLocaleString()}`\n    }\n  }\n];\n\n// Add AI Summary if available\nif (aiSummary && aiSummary.content_overview) {\n  blocks.push({\n    type: \"divider\"\n  });\n  \n  let aiText = \"🤖 *AI Analysis:*\\n\";\n  aiText += `${aiSummary.content_overview}\\n\\n`;\n  \n  if (aiSummary.key_insights && aiSummary.key_insights.length > 0) {\n    aiText += \"*Key Insights:*\\n\";\n    aiSummary.key_insights.forEach(insight => {\n      aiText += `• ${insight}\\n`;\n    });\n    aiText += \"\\n\";\n  }\n  \n  if (aiSummary.trending_themes && aiSummary.trending_themes.length > 0) {\n    aiText += \"*Trending Themes:* \" + aiSummary.trending_themes.join(\", \");\n  }\n  \n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: aiText\n    }\n  });\n}\n\n// Add top videos as separate sections for better formatting\nif (trendingVideos && trendingVideos.length > 0) {\n  blocks.push({\n    type: \"divider\"\n  });\n  \n  let videoText = \"🎬 *Top Trending Videos:*\\n\";\n  trendingVideos.slice(0, 5).forEach((video, i) => {\n    videoText += `${i + 1}. *${video.title}*\\n`;\n    videoText += `   👤 ${video.channel || video.channel_title} • ${video.views?.toLocaleString() || video.view_count?.toLocaleString() || 'N/A'} views\\n`;\n    videoText += `   💡 ${video.content_summary || video.contentSummary || 'General content'}\\n`;;\n    videoText += `   🔗 ${video.url}\\n\\n`;\n  });\n  \n  blocks.push({\n    type: \"section\",\n    text: {\n      type: \"mrkdwn\",\n      text: videoText\n    }\n  });\n}\n\nconsole.log(\"=== DEBUG: Generated Blocks ===\");\nconsole.log(\"Blocks:\", JSON.stringify(blocks, null, 2));\n\nreturn [{\n  json: {\n    text: `📊 Daily YouTube Trending Report - ${data.total_videos_found || 0} videos analyzed`,\n    blocks: blocks\n  }\n}];"
+      },
+      "id": "82b854c7-8197-4bf9-9cdc-9b17292a3494",
+      "name": "Format for Slack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09F5PMR4QN",
+          "mode": "list",
+          "cachedResultName": "all-shuqings-ai"
+        },
+        "text": "={{ $json.text }}",
+        "blocks": "={{ $json.blocks }}",
+        "otherOptions": {}
+      },
+      "id": "80550bc4-c5da-4aa5-88f4-3c0889abbfa0",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        -592,
+        208
+      ],
+      "webhookId": "13d7b3de-1deb-4248-b3e3-4c35816f01d0",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "cy6oXXsSS1yMku15",
+          "name": "shuqing_ai_channel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09F5PMR4QN",
+          "mode": "list",
+          "cachedResultName": "all-shuqings-ai"
+        },
+        "text": "⚠️ *YouTube Trending Report*\\n\\nNo trending videos found for the analyzed queries in the last 24 hours.\\n\\nThis could mean:\\n• No videos met the trending criteria\\n• YouTube API quota exceeded\\n• Network connectivity issues\\n• All queries failed\\n\\n⏰ Generated at: {{ $json.original_data.generated_at }}",
+        "otherOptions": {}
+      },
+      "id": "1e82937f-215b-4042-abda-e50befee965c",
+      "name": "Send No Videos Message",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        -720,
+        384
+      ],
+      "webhookId": "be98a5e2-3f08-45ea-965f-b838d0a6e3e0",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "cy6oXXsSS1yMku15",
+          "name": "shuqing_ai_channel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "415f0f19-e105-4fc3-8b69-f7fc3b22ee4d",
+              "leftValue": "={{ $json.total_videos_found }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1088,
+        320
+      ],
+      "id": "4330af75-1927-49a2-ad75-2da74d44374d",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily at 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Setup Keywords & Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setup Keywords & Config": {
+      "main": [
+        [
+          {
+            "node": "Call YouTube MCP Web API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call YouTube MCP Web API": {
+      "main": [
+        [
+          {
+            "node": "Process API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process API Response": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Slack": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Slack": {
+      "main": [
+        []
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Format for Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send No Videos Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d1bc9309-c8a3-4004-bff5-747bf3165614",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e26e53c3b8e201d247be81f22f7a05e95911da27046b082fa33b81c640346b65"
+  },
+  "id": "PsGb5dEdkWeR82mx",
+  "tags": [
+    {
+      "createdAt": "2025-09-16T09:15:22.673Z",
+      "updatedAt": "2025-09-16T09:15:22.673Z",
+      "id": "sDFCwLepkMH1ToQv",
+      "name": "youtube"
+    }
+  ]
+}

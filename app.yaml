@@ -1,0 +1,33 @@
+# Google App Engine configuration for YouTube MCP Web API
+runtime: python39
+
+# Environment variables
+env_variables:
+  YOUTUBE_API_KEY: "AIzaSyARxbKJR0ToZau-4eeaq165djTZ-SVIOc8"
+
+# Automatic scaling configuration
+automatic_scaling:
+  min_instances: 0
+  max_instances: 2
+  target_cpu_utilization: 0.6
+
+# Resource allocation
+resources:
+  cpu: 1
+  memory_gb: 0.5
+  disk_size_gb: 10
+
+# Health check configuration
+readiness_check:
+  path: "/health"
+  check_interval_sec: 5
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+
+liveness_check:
+  path: "/health"
+  check_interval_sec: 30
+  timeout_sec: 4
+  failure_threshold: 4
+  success_threshold: 2
