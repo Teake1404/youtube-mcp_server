@@ -13,6 +13,7 @@ wheels/
 .env
 .env.local
 .env.*.local
+app.yaml
 
 # IDE and editor files
 .vscode/
