@@ -466,7 +466,8 @@ def summarize_video_transcript_endpoint():
                 "error": "Missing required parameter: video_id"
             }), 400
         
-        # Call the MCP function
+        # Call the MCP funct
+        # ion
         result = summarize_video_transcript(
             video_id=data['video_id'],
             max_points=data.get('max_points', 5),
@@ -931,8 +932,8 @@ if __name__ == '__main__':
     debug = os.environ.get('GAE_ENV', '').startswith('standard') == False
     
     if debug:  # Local development
-        print("🚀 Starting YouTube MCP Web API Wrapper...", file=sys.stderr)
-        print("📡 This runs alongside your existing MCP server", file=sys.stderr)
+    print("🚀 Starting YouTube MCP Web API Wrapper...", file=sys.stderr)
+    print("📡 This runs alongside your existing MCP server", file=sys.stderr)
         print(f"🔗 Available at: http://localhost:{port}", file=sys.stderr)
         print(f"📋 Endpoints: http://localhost:{port}/endpoints", file=sys.stderr)
     else:  # Production (Google App Engine)
